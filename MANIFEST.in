@@ -1,0 +1,18 @@
+# 1. Documentation & Config
+include README.md
+include LICENSE
+include pyproject.toml
+
+# 2. Crucial: Include all binaries and data files
+# This recursively grabs everything inside src/sanskrit_heritage/assets
+recursive-include src/sanskrit_heritage/assets *
+
+# 3. Cleanup: Exclude junk that might have slipped in
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude .DS_Store
+global-exclude *.log
+global-exclude *.txt
+
+# 4. Exclude local tmp folder (Safety net)
+prune tmp

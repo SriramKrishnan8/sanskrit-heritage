@@ -1,0 +1,77 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sanskrit-heritage"
+version = "0.1.0"
+description = "A Python wrapper for the Sanskrit Heritage Platform"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "GPLv3"}
+authors = [
+    {name = "Sriram Krishnan", email = "sriramk8@gmail.com"}
+]
+keywords = ["sanskrit", "scl", "nlp", "segmentation", "morphology", "heritage"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Topic :: Text Processing :: Linguistic"
+]
+
+dependencies = [
+    "psutil>=5.0.0",
+    "devtrans>=3.0.0",
+    "requests>=2.25.0",
+    "tqdm>=4.0.0"
+]
+
+[project.scripts]
+sh-segment = "sanskrit_heritage.segmenter.cli:main"
+
+[project.urls]
+"Homepage" = "https://github.com/sriramkrishnan8/sanskrit-heritage"
+"Bug Tracker" = "https://github.com/sriramkrishnan8/sanskrit-heritage/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# Ensure assets are included (works with MANIFEST.in)
+[tool.setuptools.package-data]
+"sanskrit_heritage" = ["assets/**/*"]
+
+# --- MYPY CONFIGURATION ---
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+mypy_path = "src"
+
+# Use a simple list to exclude virtual envs and build folders
+exclude = [
+    "\\.venv",
+    "build",
+    "dist",
+]
+
+# --- OVERRIDES ---
+
+# 1. Explicitly ignore missing type stubs for devtrans
+[[tool.mypy.overrides]]
+module = "devtrans.*"
+ignore_missing_imports = true
+
+# 2. Fix for pytest syntax error (The "Nuclear Option")
+# We explicitly tell mypy to NEVER look inside pytest code
+[[tool.mypy.overrides]]
+module = ["pytest", "_pytest", "_pytest.*"]
+ignore_missing_imports = true
+follow_imports = "skip"
