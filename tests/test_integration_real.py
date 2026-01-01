@@ -2,6 +2,7 @@
 
 import sys
 from pathlib import Path
+import json
 
 import pytest
 
@@ -34,6 +35,133 @@ class TestRealIntegration:
             input_encoding="WX",
             output_encoding="WX"
         )
+
+    def test_facade_methods_real(self):
+        """Verify the user-friendly facade works with real binary."""
+        # 1. Test segment() -> Returns List
+        res_seg = self.segmenter.segment("rAmogacCawi")
+        assert isinstance(res_seg, list)
+        assert len(res_seg) > 0
+        assert "rAmaH gacCawi" in res_seg[0]
+
+        # 2. Test analyze() -> Returns Dict with Morph
+        res_morph = self.segmenter.analyze("gacCawi")
+        assert isinstance(res_morph, dict)
+        assert res_morph["status"] == "Success"
+        assert len(res_morph.get("morph", [])) > 0
+
+    def test_process_text_api_text(self):
+        """Test unified API returns Python Objects (not strings)."""
+        # Text format request -> Returns List object
+        res_list = self.segmenter.process_text(
+            "rAmogacCawi", output_format="text"
+        )
+        assert isinstance(res_list, list)
+        assert "rAmaH gacCawi" in res_list[0]
+
+    def test_batch_e2e_text_mode(self, tmp_path):
+        """
+        Verify the DEFAULT batch output is clean text (User Friendly).
+        """
+        input_file = tmp_path / "input.txt"
+        output_file = tmp_path / "output.txt"
+        input_file.write_text(
+            "rAmogacCawi\nkqRNorakRawu", encoding="utf-8"
+        )
+
+        # Run with defaults (format='text')
+        HeritageSegmenter.batch_process(
+            input_path=str(input_file),
+            output_path=str(output_file),
+            workers=1,
+            input_encoding="WX",
+            output_encoding="WX"
+        )
+
+        with open(output_file, 'r', encoding='utf-8') as f:
+            lines = [line.rstrip('\n') for line in f]
+
+        # Verify content is RAW TEXT, not JSON
+        assert len(lines) >= 2
+        assert lines[0] == "rAmaH gacCawi"      # No ["..."] quotes
+        assert lines[1] == "kqRNaH rakRawu"
+
+    def test_batch_e2e_json_mode(self, tmp_path):
+        """
+        Verify explicit 'list' format gives valid JSONL.
+        """
+        input_file = tmp_path / "input_json.txt"
+        output_file = tmp_path / "output.jsonl"
+        input_file.write_text("rAmogacCawi", encoding="utf-8")
+
+        HeritageSegmenter.batch_process(
+            input_path=str(input_file),
+            output_path=str(output_file),
+            workers=1,
+            output_format="list",  # Explicitly asking for list
+            input_encoding="WX",
+            output_encoding="WX"
+        )
+
+        content = output_file.read_text(encoding="utf-8").strip()
+        # Verify content is valid JSON
+        data = json.loads(content)
+        assert isinstance(data, list)
+        assert data[0] == "rAmaH gacCawi"
+
+    def test_process_text_api_list(self):
+        """Test the new unified process_text API with real binary."""
+        # 1. Simple List
+        res_list = self.segmenter.process_text(
+            "rAmogacCawi", process_mode="seg", output_format="list"
+        )
+        assert isinstance(res_list, list)
+        assert len(res_list) > 0
+        assert "rAmaH gacCawi" in res_list[0]
+
+        # 2. Full JSON
+        res_json = self.segmenter.process_text(
+            "rAmogacCawi", process_mode="seg", output_format="json"
+        )
+        assert isinstance(res_json, dict)
+        assert res_json["status"] == "Success"
+
+    def test_batch_e2e_real(self, tmp_path):
+        """
+        End-to-End test for Batch Processing.
+        Creates a file, processes it using the real batch logic, checks output.
+        """
+        # 1. Setup Input File
+        input_file = tmp_path / "input.txt"
+        output_file = tmp_path / "output.json"
+
+        sentences = ["rAmogacCawi", "satyamevajayate"]
+        input_file.write_text("\n".join(sentences), encoding="utf-8")
+
+        # 2. Run Batch
+        # (Force 1 worker to avoid heavy multiprocessing overhead in tests)
+        HeritageSegmenter.batch_process(
+            input_path=str(input_file),
+            output_path=str(output_file),
+            workers=1,
+            process_mode="seg",
+            output_format="list",
+            input_encoding="WX",
+            output_encoding="WX"
+        )
+
+        # 3. Read Output
+        assert output_file.exists()
+        lines = output_file.read_text(encoding="utf-8").strip().split("\n")
+        assert len(lines) == 2
+
+        # 4. Validate Content
+        res1 = json.loads(lines[0])  # Should be list ["rAmaH gacCawi"]
+        assert isinstance(res1, list)
+        assert "rAmaH gacCawi" in res1[0]
+
+        res2 = json.loads(lines[1])
+        assert isinstance(res2, list)
 
     def test_real_binary_execution(self):
         """Actually runs ./interface2 and checks output."""

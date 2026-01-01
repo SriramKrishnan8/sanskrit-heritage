@@ -33,6 +33,169 @@ MOCK_JSON_UNRECOGNIZED = (
 MOCK_GARBAGE = "Fatal Error: OCaml Segfault"
 
 
+class TestSerialization:
+    """Tests the static serialize_result method."""
+
+    def test_serialize_text_mode(self):
+        # List input -> Raw string
+        data = ["rAmaH gacCawi"]
+        res = HeritageSegmenter.serialize_result(data, "text")
+        assert res == "rAmaH gacCawi"
+
+        # Empty list -> Empty string
+        res = HeritageSegmenter.serialize_result([], "text")
+        assert res == ""
+
+    def test_serialize_list_mode(self):
+        # List input -> JSON Array string
+        data = ["rAmaH gacCawi"]
+        res = HeritageSegmenter.serialize_result(data, "list")
+        assert res == '["rAmaH gacCawi"]'
+
+    def test_serialize_json_mode_indent(self):
+        # Dict input -> JSON string with indent
+        data = {"status": "Success"}
+        res = HeritageSegmenter.serialize_result(data, "json", indent=2)
+        assert "{\n  \"status\"" in res  # Checks for newline and spaces
+
+    def test_serialize_json_mode_compact(self):
+        # Dict input -> Compact JSON string
+        data = {"status": "Success"}
+        res = HeritageSegmenter.serialize_result(data, "json", indent=None)
+        assert res == '{"status": "Success"}'
+
+
+class TestFacadeAPI:
+    """Tests the user-friendly wrappers (segment, analyze)."""
+
+    def setup_method(self):
+        with patch(
+            "sanskrit_heritage.config.resolve_binary_path",
+            return_value=None
+        ):
+            self.segmenter = HeritageSegmenter()
+
+    def test_segment_wrapper(self):
+        """Verify segment() calls process_text with strict defaults."""
+        with patch.object(self.segmenter, 'process_text') as mock_process:
+            mock_process.return_value = ["res"]
+
+            res = self.segmenter.segment("test")
+
+            assert res == ["res"]
+            mock_process.assert_called_once_with(
+                "test", process_mode="seg", output_format="list"
+            )
+
+    def test_analyze_wrapper(self):
+        """Verify analyze() calls process_text with strict defaults."""
+        with patch.object(self.segmenter, 'process_text') as mock_process:
+            mock_process.return_value = {"morph": []}
+
+            res = self.segmenter.analyze("test")
+
+            assert res == {"morph": []}
+            mock_process.assert_called_once_with(
+                "test", process_mode="seg-morph", output_format="json"
+            )
+
+
+class TestProcessTextLogic:
+    """Tests the smart dispatch logic in process_text."""
+
+    def setup_method(self):
+        # Mock resolve_binary_path to avoid filesystem checks
+        with patch(
+            "sanskrit_heritage.config.resolve_binary_path", return_value=None
+        ):
+            self.segmenter = HeritageSegmenter()
+
+    def test_seg_mode_text_format(self):
+        """Action: seg + text -> Result: List[str] (Ready for serialization)
+        """
+        with patch.object(self.segmenter, '_run_pipeline') as mock_get:
+            mock_get.return_value = {
+                "status": "Success",
+                "segmentation": ["res1"]
+            }
+
+            # process_text MUST return the Data (List),
+            # not the serialized string
+            result = self.segmenter.process_text(
+                "input", process_mode="seg", output_format="text"
+            )
+
+            assert isinstance(result, list)
+            assert result == ["res1"]
+
+    def test_seg_mode_list_format(self):
+        """Action: seg + list -> Result: List[str]"""
+        # Mock get_segmentation to return a full dict
+        with patch.object(self.segmenter, '_run_pipeline') as mock_get:
+            mock_get.return_value = {
+                "status": "Success",
+                "segmentation": ["res1"]
+            }
+
+            result = self.segmenter.process_text(
+                "input", process_mode="seg", output_format="list"
+            )
+
+            assert isinstance(result, list)
+            assert result == ["res1"]
+            mock_get.assert_called_once()
+
+    def test_seg_mode_json_format(self):
+        """Action: seg + json -> Result: Dict"""
+        with patch.object(self.segmenter, '_run_pipeline') as mock_get:
+            mock_get.return_value = {
+                "status": "Success", "segmentation": ["res1"]
+            }
+
+            result = self.segmenter.process_text(
+                "input", process_mode="seg", output_format="json"
+            )
+
+            assert isinstance(result, dict)
+            assert result["segmentation"] == ["res1"]
+
+    def test_morph_mode_forces_json_with_warning(self):
+        """Action: morph + list -> Warning + Result: Dict"""
+        with patch.object(
+            self.segmenter, '_run_pipeline'
+        ) as mock_get:
+            mock_get.return_value = {
+                "status": "Success", "morph": []
+            }
+
+            # We expect a warning log
+            with patch(
+                "sanskrit_heritage.segmenter.interface.logger.warning"
+            ) as mock_log:
+                result = self.segmenter.process_text(
+                    "input", process_mode="morph", output_format="list"
+                )
+
+                # Should force return dict despite asking for list
+                assert isinstance(result, dict)
+                # Verify warning was logged
+                mock_log.assert_called_once()
+                assert "incompatible" in mock_log.call_args[0][0]
+
+    def test_failure_handling_in_list_mode(self):
+        """Action: seg fails -> Result: Empty List"""
+        with patch.object(self.segmenter, '_run_pipeline') as mock_get:
+            mock_get.return_value = {
+                "status": "Failure", "error": "Bad Input"
+            }
+
+            result = self.segmenter.process_text(
+                "bad", process_mode="seg", output_format="list"
+            )
+
+            assert result == ["?? bad"]
+
+
 class TestConfiguration:
     """Tests binary path detection, environment variables, fallback logic."""
 

@@ -17,23 +17,12 @@
 
 import sys
 import argparse
-import json
+import multiprocessing
 from tqdm import tqdm
 import logging
+
 from .interface import HeritageSegmenter
-
-
-def process_text(segmenter, text, process_mode):
-    """
-    Helper to dispatch the correct method based on CLI args.
-    This ensures logic is consistent for both single-text and bulk-file modes.
-    """
-    if process_mode == "seg":
-        return segmenter.get_segmentation(text)
-    elif process_mode == "morph":
-        return segmenter.get_morphological_analysis(text)
-    else:  # "seg-morph"
-        return segmenter.get_analysis(text)
+from .batch import run_parallel_batch
 
 
 def main():
@@ -91,8 +80,15 @@ def main():
         "--debug", action="store_true",
         help="Enable detailed debug logging"
     )
+    parser.add_argument(
+        "--output_format",
+        default="text",
+        choices=["json", "list", "text"],
+        help="Output structure: 'json' (full data) or 'list' (of strings)" +
+             " or 'text' (string). 'list' is only valid for segmentation."
+    )
 
-    # --- Input/Output ---
+    # --- Input/Output & Parallelism ---
     parser.add_argument(
         "-t", "--input_text", type=str, help="Input text string"
     )
@@ -102,81 +98,150 @@ def main():
     parser.add_argument(
         "-o", "--output_file", type=str, help="Path to output file"
     )
+    parser.add_argument(
+        "--jobs", type=int, default=1,
+        help="Number of parallel processes. 1=Sequential, 0=auto-detect."
+    )
 
     args = parser.parse_args()
 
-    # --- 1. Configure Logging ---
-    if args.debug:
-        logging.basicConfig(level=logging.DEBUG)
+    # --- LOGGING CONFIGURATION ---
+    # 1. Decide the level based on the flag
+    log_level = logging.DEBUG if args.debug else logging.INFO
+
+    # 2. Configure the root logger
+    # This setting applies to ALL files (batch.py, interface.py, etc.)
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%H:%M:%S",
+        stream=sys.stderr
+    )
+
+    logger = logging.getLogger("CLI")
+    # -----------------------------
 
     # --- 2. Validation ---
     if not args.input_text and not args.input_file:
-        print(
+        logger.error(
             "Error: Please specify either input text ('-t') "
-            "or input file ('-i')",
-            file=sys.stderr
+            "or input file ('-i')"
         )
         sys.exit(1)
 
-    # --- 3. Initialize Segmenter ---
-    try:
-        sh_segmenter = HeritageSegmenter(
-            lex=args.lexicon,
-            input_encoding=args.input_encoding,
-            output_encoding=args.output_encoding,
-            mode=args.mode,
-            text_type=args.text_type,
-            unsandhied=args.unsandhied,
-            metrics=args.metrics,
-            timeout=args.timeout
+    if args.input_file and not args.output_file:
+        logger.error(
+            "Error: Output file ('-o') is required when using input file",
         )
-    except Exception as e:
-        print(f"Initialization Error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # --- 4A. Handle Single Text Input ---
-    if args.input_text:
-        result = process_text(sh_segmenter, args.input_text, args.process)
+    # --- 3. Build preparation ---
+    # We create a config dict to pass to the batch processor if needed
+    config_dict = {
+        "lex": args.lexicon,
+        "input_encoding": args.input_encoding,
+        "output_encoding": args.output_encoding,
+        "mode": args.mode,
+        "text_type": args.text_type,
+        "unsandhied": args.unsandhied,
+        "metrics": args.metrics,
+        "timeout": args.timeout,
+        "binary_path": args.binary_path
+    }
 
-        output_str = json.dumps(result, ensure_ascii=False, indent=2)
+    # --- 4. Initialize Local Segmenter (Conditional) ---
+    # A local instance is initialized only when NOT running in parallel mode.
+    # Parallel mode creates its own instances in the worker processes.
+    sh_segmenter = None
+    requires_local_instance = args.input_text or \
+        (args.input_file and args.jobs == 1)
 
-        if args.output_file:
-            with open(args.output_file, 'w', encoding='utf-8') as f:
-                f.write(output_str)
-            print(f"Output written to {args.output_file}")
-        else:
-            print(output_str)
-
-    # --- 4B. Handle Bulk File Input ---
-    elif args.input_file:
-        if not args.output_file:
-            print(
-                "Error: Output file ('-o') is required with input file",
-                file=sys.stderr
-            )
-            sys.exit(1)
-
+    if requires_local_instance:
         try:
-            with open(args.input_file, 'r', encoding='utf-8') as f:
-                input_lines = [line.strip() for line in f if line.strip()]
-        except FileNotFoundError:
-            print(f"Error: File {args.input_file} not found.", file=sys.stderr)
-            sys.exit(1)
-
-        print(f"Processing {len(input_lines)} sentences...")
-
-        try:
-            with open(args.output_file, 'w', encoding='utf-8') as f:
-                for line in tqdm(input_lines, desc="Processing"):
-                    res = process_text(sh_segmenter, line, args.process)
-                    f.write(json.dumps(res, ensure_ascii=False) + "\n")
+            sh_segmenter = HeritageSegmenter(**config_dict)
         except Exception as e:
-            print(f"\nError during bulk processing: {e}", file=sys.stderr)
-            print(f"Partial results saved to {args.output_file}")
+            logger.critical(f"Initialization Error: {e}")
+            if args.debug:
+                logger.exception("Stack trace.")
             sys.exit(1)
 
-        print(f"Completed. Results written to {args.output_file}")
+    # --- 5. Execution Logic ---
+
+    # Indent if printing to screen, Compact if writing to file
+    should_indent = 2 if not args.output_file else None
+
+    # A. Single Text Mode
+    if args.input_text:
+        try:
+            result = sh_segmenter.process_text(
+                args.input_text,
+                process_mode=args.process,
+                output_format=args.output_format,
+            )
+
+            output_str = HeritageSegmenter.serialize_result(
+                result, args.output_format, should_indent
+            )
+
+            if args.output_file:
+                with open(args.output_file, 'w', encoding='utf-8') as f:
+                    f.write(output_str)
+                logger.info(f"Output written to {args.output_file}")
+            else:
+                print(output_str)
+        except Exception as e:
+            logger.error(f"Processing Error: {e}")
+            sys.exit(1)
+
+    # B. Bulk File Mode
+    elif args.input_file:
+        if args.jobs != 1:
+            # --- Parallel Path (Delegates to batch.py) ---
+            # 0 or >1 triggers parallel processing
+            run_parallel_batch(
+                input_file=args.input_file,
+                output_file=args.output_file,
+                config=config_dict,
+                process_mode=args.process,
+                output_format=args.output_format,
+                num_workers=args.jobs
+            )
+        else:
+            # --- Sequential Path (Uses local sh_segmenter) ---
+            try:
+                with open(args.input_file, 'r', encoding='utf-8') as f:
+                    input_lines = [line.strip() for line in f if line.strip()]
+            except FileNotFoundError:
+                logger.error(
+                    f"Error: File {args.input_file} not found."
+                )
+                sys.exit(1)
+
+            logger.info(
+                f"Processing {len(input_lines)} sentences (Sequential)..."
+            )
+
+            try:
+                with open(args.output_file, 'w', encoding='utf-8') as f:
+                    for line in tqdm(input_lines, desc="Processing"):
+                        res = sh_segmenter.process_text(
+                            line,
+                            process_mode=args.process,
+                            output_format=args.output_format
+                        )
+                        output_str = HeritageSegmenter.serialize_result(
+                            res, args.output_format, indent=should_indent
+                        )
+                        f.write(output_str + "\n")
+            except Exception as e:
+                logger.error(f"\nError during bulk processing: {e}")
+                logger.info(f"Partial results saved to {args.output_file}")
+                sys.exit(1)
+
+            logger.info(f"Completed. Results written to {args.output_file}")
 
 
 if __name__ == "__main__":
+    # For Windows compatibility when freezing logic or spawning processes
+    multiprocessing.freeze_support()
     main()

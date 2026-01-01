@@ -23,6 +23,7 @@ import json
 import re
 import logging
 from itertools import product, islice
+
 import requests
 import devtrans as dt
 
@@ -57,6 +58,12 @@ VALID_OUT_ENC = {"DN", "RN", "WX"}
 
 
 class HeritageSegmenter:
+    """
+    Main interface for the Sanskrit Heritage Platform.
+    Wraps the OCaml engine (or Web API) to provide Segmentation
+    and Morphological Analysis.
+    """
+
     def __init__(self,
                  lex="MW",
                  input_encoding="DN",
@@ -226,7 +233,84 @@ class HeritageSegmenter:
         self._timeout = val
 
     # ==========================
-    # Public API
+    # 1. User-Friendly API
+    # ==========================
+
+    def segment(self, text):
+        """
+        Simple wrapper for segmentation.
+        Returns a clean list of strings (e.g. ['res1', 'res2']).
+        This is the easiest entry point for Python developers.
+        """
+        return self.process_text(
+            text,
+            process_mode="seg",
+            output_format="list"
+        )
+
+    def analyze(self, text):
+        """
+        Simple wrapper for full analysis (Segmentation + Morphology).
+        Returns the full dictionary object with metadata.
+        """
+        return self.process_text(
+            text,
+            process_mode="seg-morph",
+            output_format="json"
+        )
+
+    # ==========================
+    # 2. System API (The Engine)
+    # ==========================
+
+    def process_text(self, text, process_mode="seg", output_format="text"):
+        """
+        Unified entry point for dynamic processing.
+        Useful for CLIs and batch jobs where the mode is a variable.
+
+        Args:
+            text (str): Input text.
+            process_mode (str): 'seg', 'morph', or 'seg-morph'.
+            output_format (str) : 'list', 'json' or 'text'
+                                  'list' and 'text' only for 'seg' mode
+        """
+        # 1. Morph mode cannot return a simple list
+        #    because we would lose the tags. Fallback to JSON.
+        if "morph" in process_mode and output_format in ["list", "text"]:
+            logger.warning(
+                f"Format 'list' incompatible with mode '{process_mode}'. "
+                "Returning full JSON to preserve analysis."
+            )
+            output_format = "json"
+
+        # 2. Top 10 solutions cannot be displayed using text
+        if self.mode == "top10" and output_format == "text":
+            logger.warning(
+                "Format 'text' supports only 1 solution. "
+                "Switching to 'list' to show all top 10 solutions."
+            )
+            output_format = "list"
+
+        # 2. Retrieve the results based on the process
+        result = self._run_pipeline(
+            text, process=process_mode
+        )
+
+        # 3. Format the output
+        if output_format in ["list", "text"]:
+            if result.get("status") in ["Success", "Unrecognized"]:
+                seg_result = result.get("segmentation", [])
+                if seg_result:
+                    return seg_result
+
+            # Return the input prefixed with "??" in case of errors
+            # like Timeout, Binary Crash, Empty Result
+            return [f"?? {text}"]
+        else:
+            return result
+
+    # ==========================
+    # Internal Wrappers
     # ==========================
 
     def get_segmentation(self, input_text):
@@ -258,7 +342,6 @@ class HeritageSegmenter:
 
         # 1. Clean and normalize input
         cleaned_text = self._handle_input(input_text.strip())
-
         logger.debug(
             json.dumps(f"Cleaned text: {cleaned_text}", ensure_ascii=False)
         )
@@ -277,7 +360,6 @@ class HeritageSegmenter:
         ]
 
         results = []
-
         source_label = "SH-Web" if self.use_web_fallback else "SH-Local"
 
         for sub_sent in sub_sent_list:
@@ -300,7 +382,6 @@ class HeritageSegmenter:
             )
 
             logger.debug(f"Processed Result: {processed}")
-
             results.append(processed)
 
         # 6. Merge results if multiple sentences
@@ -309,9 +390,10 @@ class HeritageSegmenter:
         else:
             return self._merge_sent_analyses(results, source_label)
 
-    # -------------------------------------------------------------------------
-    # Execution Method 1: Local Binary
-    # -------------------------------------------------------------------------
+    # ==================================
+    # Execution Helpers: Local Binary
+    # ==================================
+
     def _execute_cgi(self, text, current_enc, process):
         """Executes the binary using subprocess with the correct CWD."""
 
@@ -354,9 +436,10 @@ class HeritageSegmenter:
         except psutil.NoSuchProcess:
             pass
 
-    # -------------------------------------------------------------------------
+    # ======================================================
     # Execution Method 2: Web Server Fallback (Requests)
-    # -------------------------------------------------------------------------
+    # ======================================================
+
     def _execute_web_request(self, text, current_enc, process):
         """Fetches results from the official INRIA server."""
         _, query_params = self._prepare_cgi_args(
@@ -386,10 +469,10 @@ class HeritageSegmenter:
     def _prepare_cgi_args(self, text, current_enc, process, as_dict=False):
         """Shared logic to build query parameters."""
 
-        if process == "seg":  # Segmentation
-            cgi_process_key = "pipeline"
-        else:  # Segmentation and Morphological Analysis
+        if "morph" in process:  # Segmentation and Morphological Analysis
             cgi_process_key = "stemmer"
+        else:  # Default: Segmentation
+            cgi_process_key = "pipeline"
 
         # Font logic
         if self.output_encoding in ["DN", "RN"]:
@@ -442,10 +525,11 @@ class HeritageSegmenter:
         # Chandrabindu logic
         if self.input_encoding == "DN":
             chandrabindu = "ꣳ"
-            if modified_input.endswith(chandrabindu):
-                modified_input = modified_input.replace(chandrabindu, "म्")
-            else:
-                modified_input = modified_input.replace(chandrabindu, "ं")
+            ends_with_chandrabindu = modified_input.endswith(chandrabindu)
+            modified_input = modified_input.replace(chandrabindu, "ं")
+
+            if ends_with_chandrabindu:
+                modified_input = modified_input[:-1] + "म्"
 
         modified_input = re.sub(r'M$', 'm', modified_input)
         modified_input = re.sub(r'\.m$', '.m', modified_input)
@@ -476,10 +560,11 @@ class HeritageSegmenter:
 
         # Chandrabindu WX fix
         if "z" in trans_input:
-            if trans_input.endswith("z"):
-                trans_input = trans_input.replace("z", "m")
-            else:
-                trans_input = trans_input.replace("z", "M")
+            ends_with_cb = trans_input.endswith("z")
+            trans_input = trans_input.replace("z", "M")
+
+            if ends_with_cb:
+                trans_input = trans_input[:-1] + "m"
 
         return trans_input, trans_enc
 
@@ -595,7 +680,7 @@ class HeritageSegmenter:
 
         analysis_json["segmentation"] = segmentations
 
-        if process == "seg-morph":
+        if "morph" in process:
             morphs = result_json.get("morph", [])
             if morphs:
                 new_morphs = []
@@ -702,3 +787,71 @@ class HeritageSegmenter:
         merged["source"] = source_label
 
         return merged
+
+    # ==========================
+    # Static Utilities
+    # ==========================
+
+    @staticmethod
+    def batch_process(
+        input_path,
+        output_path,
+        workers=None,
+        process_mode="seg",
+        output_format="text",
+        **kwargs
+    ):
+        """
+        Run parallel batch processing on a file.
+
+        Args:
+            input_path (str): Path to the input file.
+            output_path (str): Path to save the output.
+            workers (int, optional): Number of CPU cores to use.
+                                     Defaults to auto-detect.
+            process_mode (str, optional): 'seg' (default), 'morph',
+                                           or 'seg-morph'.
+            output_format (str): 'json' (default, full details)
+                                 or 'list' (segmentation strings only).
+
+            **kwargs: Configuration options passed to the
+                      HeritageSegmenter constructor.
+                      Common options include:
+                      - lex (str): 'MW' or 'SH'
+                      - input_encoding (str): 'DN', 'WX', 'SL', etc.
+                      - output_encoding (str): 'DN', 'RN', 'WX'
+                      - mode (str): 'first' or 'top10'
+                      - timeout (int): Seconds per sentence.
+        """
+        from .batch import run_parallel_batch  # Local import
+
+        run_parallel_batch(
+            input_file=input_path,
+            output_file=output_path,
+            config=kwargs,  # Pass the captured dict
+            process_mode=process_mode,
+            output_format=output_format,
+            num_workers=workers
+        )
+
+    @staticmethod
+    def serialize_result(data, output_format, indent=None):
+        """
+        Helper to convert the Python Data (List/Dict) into a writable String.
+        Used by CLI and Batch writers to ensure consistent output formatting.
+        Args:
+            data (dict): Dictionary containing the result
+            output_format (str): 'list', 'text' or 'json'
+            indent (int): Json indentation level.
+                          Pass None for compact (Batch).
+                          Pass 2 for pretty (CLI).
+        """
+        if output_format == "text":
+            # Unwrap the list for raw text output
+            if isinstance(data, list) and data:
+                return str(data[0])
+            else:
+                return ""  # Return empty string for failures/empty results
+        else:
+            # For 'json' or 'list' format, dump the object to a JSON string
+            return json.dumps(data, ensure_ascii=False, indent=indent)
