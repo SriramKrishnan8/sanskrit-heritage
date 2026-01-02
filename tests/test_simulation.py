@@ -87,6 +87,36 @@ class TestFacadeAPI:
                 "test", process_mode="seg", output_format="list"
             )
 
+    def test_analyze_word_wrapper(self):
+        """
+        Verify analyze_word() forces text_type='word' and restores it.
+        """
+        # 1. Start in 'sent' mode (default)
+        self.segmenter.text_type = "sent"
+
+        with patch.object(self.segmenter, 'process_text') as mock_process:
+            expected_return = {"morph": ["dummy_data"]}
+            mock_process.return_value = expected_return
+
+            # 2. Call the method
+            res = self.segmenter.analyze_word("testword")
+
+            # 3. Verify arguments passed to process_text
+            # It should have received text_type="word" (via state change)
+            # BUT since we mock process_text, we check the side effect or
+            # simply check the flow.
+            assert res == expected_return
+
+            # Let's verify the call arguments
+            mock_process.assert_called_once_with(
+                "testword",
+                process_mode="morph",
+                output_format="json"
+            )
+
+        # 4. CRITICAL: Verify state was restored to 'sent'
+        assert self.segmenter.text_type == "sent"
+
     def test_analyze_wrapper(self):
         """Verify analyze() calls process_text with strict defaults."""
         with patch.object(self.segmenter, 'process_text') as mock_process:

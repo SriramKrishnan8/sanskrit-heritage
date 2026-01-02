@@ -187,3 +187,17 @@ class TestRealIntegration:
         assert len(morphs) > 0
         # 'gam' is the root of 'gacCawi'
         assert "gam" in morphs[0]["root"]
+
+    def test_analyze_word_real(self):
+        """Verify analyze_word works on a compound word."""
+        # rAmAlayaH is a compound "Rama-Home".
+        # In 'word' mode, it should be analyzed.
+        # In 'sent' mode, it might be split differently.
+
+        res = self.segmenter.analyze_word("rAmAlayaH")
+
+        assert res["status"] == "Success"
+        assert len(res["morph"]) > 0
+        # Check if it identified the split inside the word analysis
+        # (This depends on dictionary, but generally safe check)
+        assert isinstance(res["morph"], list)

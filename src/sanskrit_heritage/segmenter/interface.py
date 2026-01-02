@@ -259,6 +259,28 @@ class HeritageSegmenter:
             output_format="json"
         )
 
+    def analyze_word(self, word):
+        """
+        Simple wrapper for single word morphological analysis.
+        Temporarily forces text_type='word' for this call only.
+        """
+        # 1. Save current state
+        original_text_type = self.text_type
+
+        try:
+            # 2. Mutate state
+            self.text_type = "word"
+
+            # 3. Call engine
+            return self.process_text(
+                word,
+                process_mode="morph",
+                output_format="json"
+            )
+        finally:
+            # 4. Restore state GUARANTEED
+            self.text_type = original_text_type
+
     # ==========================
     # 2. System API (The Engine)
     # ==========================

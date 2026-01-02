@@ -54,7 +54,9 @@ This package comes with pre-compiled OCaml binaries that work out-of-the-box on 
 
 The core of the package is the `HeritageSegmenter` class.
 
-### Basic Segmentation
+### Simple Segmentation
+
+Use `.segment()` to get a clean list of segmentation strings.
 
 ```python
 from sanskrit_heritage import HeritageSegmenter
@@ -66,64 +68,50 @@ from sanskrit_heritage import HeritageSegmenter
 segmenter = HeritageSegmenter()
 
 text = "धर्मक्षेत्रे कुरुक्षेत्रे समवेता युयुत्सवः मामकाः पाण्डवाश्चैव किमकुर्वत सञ्जय"
-result = segmenter.get_segmentation(text)
 
+# Returns a list of strings
+result = segmenter.segment(text)
 print(result)
 ```
 
-### Output
+#### Output
 
-```json
-{
-  "input": "धर्मक्षेत्रे कुरुक्षेत्रे समवेता युयुत्सवः मामकाः पाण्डवाश्चैव किमकुर्वत सञ्जय",
-  "status": "Success",
-  "segmentation": [
-    "धर्म-क्षेत्रे कुरु-क्षेत्रे समवेताः युयुत्सवः मामकाः पाण्डवाः च एव किम् अकुर्वत सञ्जय"
-  ],
-  "source": "SH-local",
-  "morph": []
-}
 ```
-*(Note: `source` will be `SH-Web` if local binary fails)*
+["धर्म-क्षेत्रे कुरु-क्षेत्रे समवेताः युयुत्सवः मामकाः पाण्डवाः च एव किम् अकुर्वत सञ्जय"]
+```
+
 
 ### Morphological Analysis
 
-```python
-# Initialize with custom encoding (WX)
-segmenter = HeritageSegmenter(input_encoding="WX", output_encoding="WX")
+Use `.analyze_word()` to get the json output containing the morphological analysis of the given word
 
-text = "gacCawi"
-analysis = segmenter.get_morphological_analysis(text)
-print(analysis)
+```python
+from sanskrit_heritage import HeritageSegmenter
+import json
+
+sh_segmenter = HeritageSegmenter(input_encoding="WX", output_encoding="DN", metrics="morph")
+
+word_analysis = sh_segmenter.analyze_word("gacCawi")
+print(json.dumps(word_analysis, ensure_ascii=False, indent=2))
 ```
 
-### Output
+#### Output
 
 ```json
 {
-  "input": "gacCawi",
+  "input": "गच्छति",
   "status": "Success",
   "segmentation": [
-    "gacCawi"
+    "गच्छति"
   ],
   "morph": [
     {
-      "word": "gacCawi",
+      "word": "गच्छति",
       "stem": "",
-      "root": "gam",
+      "root": "गम्",
       "derivational_morph": "",
       "inflectional_morphs": [
         "pr. [1] ac. sg. 3"
-      ]
-    },
-    {
-      "word": "gacCawi",
-      "stem": "gacCaw",
-      "root": "gam",
-      "derivational_morph": "ppr. [1] ac.",
-      "inflectional_morphs": [
-        "n. sg. loc.",
-        "m. sg. loc."
       ]
     }
   ],
@@ -131,9 +119,132 @@ print(analysis)
 }
 ```
 
-### Custom Configuration
+Compound words are also analyzed using analyze_word():
 
-You can customize the engine's behavior during initialization:
+```python
+word_analysis = sh_segmenter.analyze_word("rAmAlayaH")
+print(json.dumps(word_analysis, ensure_ascii=False, indent=2))
+```
+
+#### Output
+
+```json
+{
+  "input": "रामालयः",
+  "status": "Success",
+  "segmentation": [
+    "राम-आलयः"
+  ],
+  "morph": [
+    {
+      "word": "राम-",
+      "stem": "राम",
+      "root": "",
+      "derivational_morph": "",
+      "inflectional_morphs": [
+        "iic."
+      ]
+    },
+    {
+      "word": "आलयः",
+      "stem": "आलय",
+      "root": "",
+      "derivational_morph": "",
+      "inflectional_morphs": [
+        "m. sg. nom."
+      ]
+    },
+...
+    }
+  ],
+  "source": "SH-Local"
+}
+```
+
+### Joint Segmentation and Morphological Analysis
+
+Use `.analyze()` to get json output with both segmentation and morphological analysis of the given sentence.
+
+```python
+analysis = segmenter.analyze("rAmovanafgacCawi")
+print(json.dumps(analysis, ensure_ascii=False, indent=2))
+```
+
+#### Output
+
+```json
+{
+  "input": "रामोवनङ्गच्छति",
+  "status": "Success",
+  "segmentation": [
+    "रामः वनम् गच्छति"
+  ],
+  "morph": [
+    {
+      "word": "रामः",
+      "stem": "राम",
+      "root": "",
+      "derivational_morph": "",
+      "inflectional_morphs": [
+        "m. sg. nom."
+      ]
+    },
+    {
+      "word": "वनम्",
+      "stem": "वन",
+      "root": "",
+      "derivational_morph": "",
+      "inflectional_morphs": [
+        "n. sg. acc.",
+        "n. sg. nom."
+      ]
+    },
+    {
+      "word": "गच्छति",
+      "stem": "",
+      "root": "गम्",
+      "derivational_morph": "",
+      "inflectional_morphs": [
+        "pr. [1] ac. sg. 3"
+      ]
+    }
+  ],
+  "source": "SH-Local"
+}
+```
+
+*(Note: `source` will be `SH-Web` if local binary fails)*
+
+### 3. Advanced Usage (The Engine)
+
+For fine-grained control over the output format (JSON vs Text) or processing mode, use the unified `process_text` method.
+
+```python
+segmenter = HeritageSegmenter(input_encoding="WX")
+
+# process_mode: 'seg', 'morph', or 'seg-morph'
+# output_format: 'text' (string), 'list' (array), or 'json' (full object)
+output = segmenter.process_text(
+    "rAmovanafgacCawi",
+    process_mode="seg-morph",
+    output_format="json"
+)
+```
+
+The processing modes and the output formats are:
+
+| Argument | Value | Description |
+| :--- | :--- | :--- |
+| process_mode | seg | Segmentation |
+|  | morph | Morphological Analysis |
+|  | seg-morph | Segmentation and Morphological Analysis |
+| output_format | text | Returns a string (applicable only for Segmentation) |
+|  | list | Returns a list of strings (applicable only for Segmentation) |
+|  | json | Returns a JSON with values for keys: `input`, `status`, `segmentation`, `source` and `morph` 
+
+### 4. Custom Configuration
+
+You can also customize the engine's behavior during initialization:
 
 ```python
 segmenter = HeritageSegmenter(
@@ -147,6 +258,25 @@ segmenter = HeritageSegmenter(
     timeout=60               # Increase timeout for long sentences
 )
 ```
+
+### 5. Batch Processing
+
+There is also an option to run a large number of sentences using parallel processing by directly calling the method `batch_process`. Given an `input_file.tsv` with sentences separated by newline:
+
+```python
+HeritageSegmenter.batch_process(
+    input_path="input_file.tsv",
+    output_path="output_file.tsv",
+    process_mode="seg",
+    output_format="text",
+    # Additional arguments from the previous configurations 
+    # can also be passed here like:
+    # input_encoding="WX",
+    # metrics="morph",
+)
+```
+
+The `output_format` is automatically adjusted according to the `process_mode`. For example, when `process_mode="morph"`, `output_format` cannot be `text` and even if the user is provides `output_format="text"`, it is changed to `json`, a warning is thrown, and a JSON output is produced with the `morph` key containing the morphological analysis.
 
 ---
 
@@ -167,11 +297,19 @@ sh-segment -t "गच्छति" --process morph --output_encoding RN
 sh-segment -t "रामोवनङ्गच्छति" --process seg-morph --output_encoding RN
 ```
 
-### Bulk File Processing
+### Bulk File Processing (Parallel)
 
-Process a file containing newline-delimited sentences. The output will be a newline-delimited json strings file.
+Process large files efficiently using multiple CPU cores. The input file should contain newline-delimited sentences.
+
 ```bash
-sh-segment -i input.txt -o output.txt
+# Process file using 4 parallel workers
+sh-segment -i input.txt -o output.txt --jobs 4
+
+# Auto-detect max workers (jobs=0)
+sh-segment -i input.txt -o output.txt --jobs 0 --input_encoding WX
+
+# Process file sequentially
+sh-segment -i input.txt -o output.txt --jobs 1 --input_encoding WX
 ```
 
 ### CLI Arguments
@@ -187,6 +325,8 @@ sh-segment -i input.txt -o output.txt
 | `--metrics` | word | Ranking metrics: `word` or `morph` |
 | `--process` | seg | `seg` (Segmentation only), `morph` (Morphological analysis), or `seg-morph` (Full) |
 | `--timeout` | 30 | Execution timeout in seconds |
+| `--jobs` | 1 | Parallel workers. `1`=Sequential, `0`=Auto-detect (Max Cores) |
+| `--output_format` | text | `text` (clean string), `list` (json array), or `json` (full object) |
 
 ---
 
@@ -215,10 +355,10 @@ engine = HeritageSegmenter(binary_path="/custom/path/to/interface2.cgi")
 ## ⚠️ Troubleshooting
 
 **1. Encoding Errors**
-Make sure the input does not deviate from the encoding specified, and does not contain special characters except `.` (Roman full stop), `।`, `॥` (Devanagari full stops), and `!`.
+Make sure the input does not deviate from the encoding specified as the engine does not detect encoding automatically, but will raise an error when the input and the encoding do not match. Also make sure the input does not contain special characters except `.` (Roman full stop), `।`, `॥` (Devanagari full stops), and `!`.
 
 **2. "Unrecognized words" / "?" in Output**
-If the output status is `Unrecognized` or contains `?`, it means the Sanskrit Heritage engine could not identify the word (it might be a proper noun or an OOV (out-of-vocabulary) instance).
+If the output status is `Unrecognized` or contains words or chunks prefixed with a single `?`, it means the Sanskrit Heritage engine could not identify the word (it might be a proper noun or an OOV (out-of-vocabulary) instance). When the result is prefixed with a `??`, then the engine has failed due to timeout or crash.
 
 **3. Segmentation (and/or Morphological Analysis) Errors**
 It is possible that sometimes the expected results are not produced. In such cases, try changing the `metrics`. Alternatively, try the `top10` mode to capture more possible results.
