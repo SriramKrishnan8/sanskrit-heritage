@@ -2,7 +2,7 @@
 
 import sys
 from pathlib import Path
-from unittest.mock import patch, MagicMock, mock_open
+from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -139,33 +139,40 @@ def test_cli_exception_handling():
         assert excinfo.value.code == 1
 
 
-def test_cli_batch_parallel_dispatch():
+@pytest.mark.parametrize("jobs_arg, expected_workers", [
+    ("1", 1),  # Sequential Case
+    ("4", 4)   # Parallel Case
+])
+def test_cli_batch_dispatch(jobs_arg, expected_workers):
+    """
+    Verify CLI delegates ALL batch operations to sh_segmenter.process_file
+    correctly for both sequential and parallel modes.
+    """
     test_args = [
-        "sh-segment", "-i", "in.txt", "-o", "out.json",
-        "--jobs", "4", "--output_format", "json"
+        "sh-segment",
+        "-i", "in.txt",
+        "-o", "out.json",
+        "--jobs", jobs_arg,
+        "--output_format", "json"
     ]
-    with patch.object(sys, 'argv', test_args), \
-         patch("sanskrit_heritage.segmenter.cli.run_parallel_batch") \
-            as mock_batch:
-        cli.main()
-        mock_batch.assert_called_once()
-        _, kwargs = mock_batch.call_args
-        assert kwargs["output_format"] == "json"
-
-
-def test_cli_batch_sequential_dispatch():
-    test_args = ["sh-segment", "-i", "in.txt", "-o", "out.json", "--jobs", "1"]
-    mock_file_content = "line1\nline2"
 
     with patch.object(sys, 'argv', test_args), \
          patch("sanskrit_heritage.segmenter.cli.HeritageSegmenter") \
-            as MockSegmenter, \
-         patch("builtins.open", mock_open(read_data=mock_file_content)):
+            as MockSegmenter:
 
         mock_instance = MockSegmenter.return_value
-        MockSegmenter.serialize_result.return_value = "res"  # Mock static
+
         cli.main()
 
-        # Verify both processing and serialization happen per line
-        assert mock_instance.process_text.call_count == 2
-        assert MockSegmenter.serialize_result.call_count == 2
+        # Verify process_file was called with correct args
+        mock_instance.process_file.assert_called_once()
+        _, kwargs = mock_instance.process_file.call_args
+
+        assert kwargs["input_path"] == "in.txt"
+        assert kwargs["output_path"] == "out.json"
+
+        # THIS assertion verifies the split logic works
+        assert kwargs["workers"] == expected_workers
+
+        assert kwargs["process_mode"] == "seg"
+        assert kwargs["output_format"] == "json"

@@ -18,11 +18,9 @@
 import sys
 import argparse
 import multiprocessing
-from tqdm import tqdm
 import logging
 
 from .interface import HeritageSegmenter
-from .batch import run_parallel_batch
 
 
 def main():
@@ -150,20 +148,14 @@ def main():
     }
 
     # --- 4. Initialize Local Segmenter (Conditional) ---
-    # A local instance is initialized only when NOT running in parallel mode.
-    # Parallel mode creates its own instances in the worker processes.
-    sh_segmenter = None
-    requires_local_instance = args.input_text or \
-        (args.input_file and args.jobs == 1)
-
-    if requires_local_instance:
-        try:
-            sh_segmenter = HeritageSegmenter(**config_dict)
-        except Exception as e:
-            logger.critical(f"Initialization Error: {e}")
-            if args.debug:
-                logger.exception("Stack trace.")
-            sys.exit(1)
+    try:
+        logger.debug("Initializing Heritage Segmenter...")
+        sh_segmenter = HeritageSegmenter(**config_dict)
+    except Exception as e:
+        logger.critical(f"Initialization Error: {e}")
+        if args.debug:
+            logger.exception("Stack trace.")
+        sys.exit(1)
 
     # --- 5. Execution Logic ---
 
@@ -172,6 +164,7 @@ def main():
 
     # A. Single Text Mode
     if args.input_text:
+        logger.info("Processing single text input...")
         try:
             result = sh_segmenter.process_text(
                 args.input_text,
@@ -195,50 +188,33 @@ def main():
 
     # B. Bulk File Mode
     elif args.input_file:
-        if args.jobs != 1:
-            # --- Parallel Path (Delegates to batch.py) ---
-            # 0 or >1 triggers parallel processing
-            run_parallel_batch(
-                input_file=args.input_file,
-                output_file=args.output_file,
-                config=config_dict,
+        logger.info(f"Preparing batch processing for {args.input_file}...")
+
+        # 1. Determine Workers
+        # If user passes 1, we pass 1. If 0 or > 1, we pass that.
+        # process_file handles the optimization logic.
+        workers_arg = args.jobs if args.jobs != 1 else 1
+
+        # 3. Call the Engine
+        # We catch keyboard interrupt (Ctrl+C) gracefully here
+        try:
+            sh_segmenter.process_file(
+                input_path=args.input_file,
+                output_path=args.output_file,
+                workers=workers_arg,
                 process_mode=args.process,
                 output_format=args.output_format,
-                num_workers=args.jobs
             )
-        else:
-            # --- Sequential Path (Uses local sh_segmenter) ---
-            try:
-                with open(args.input_file, 'r', encoding='utf-8') as f:
-                    input_lines = [line.strip() for line in f if line.strip()]
-            except FileNotFoundError:
-                logger.error(
-                    f"Error: File {args.input_file} not found."
-                )
-                sys.exit(1)
-
-            logger.info(
-                f"Processing {len(input_lines)} sentences (Sequential)..."
-            )
-
-            try:
-                with open(args.output_file, 'w', encoding='utf-8') as f:
-                    for line in tqdm(input_lines, desc="Processing"):
-                        res = sh_segmenter.process_text(
-                            line,
-                            process_mode=args.process,
-                            output_format=args.output_format
-                        )
-                        output_str = HeritageSegmenter.serialize_result(
-                            res, args.output_format, indent=should_indent
-                        )
-                        f.write(output_str + "\n")
-            except Exception as e:
-                logger.error(f"\nError during bulk processing: {e}")
-                logger.info(f"Partial results saved to {args.output_file}")
-                sys.exit(1)
-
             logger.info(f"Completed. Results written to {args.output_file}")
+
+        except KeyboardInterrupt:
+            logger.warning("\nBatch processing interrupted by user.")
+            sys.exit(130)
+        except Exception as e:
+            logger.error(f"Critical Batch Error: {e}")
+            if args.debug:
+                logger.exception("Traceback:")
+            sys.exit(1)
 
 
 if __name__ == "__main__":

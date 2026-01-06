@@ -26,6 +26,7 @@ from itertools import product, islice
 
 import requests
 import devtrans as dt
+from tqdm import tqdm
 
 # Safer import to prevent circular dependency issues
 try:
@@ -157,7 +158,7 @@ class HeritageSegmenter:
         if value not in MAP_OUT_ENC:
             raise ValueError(
                 f"Invalid output encoding '{value}'. "
-                "Use: {list(MAP_OUT_ENC.keys())}"
+                f"Use: {list(MAP_OUT_ENC.keys())}"
             )
         self._output_encoding = value
 
@@ -182,7 +183,7 @@ class HeritageSegmenter:
         if val not in MAP_TEXT_MODE:
             raise ValueError(
                 f"Invalid text_type: {val}. "
-                "Use {list(MAP_TEXT_MODE.keys())}"
+                f"Use {list(MAP_TEXT_MODE.keys())}"
             )
         self._text_type = val
 
@@ -216,7 +217,7 @@ class HeritageSegmenter:
         if val not in MAP_METRICS:
             raise ValueError(
                 f"Invalid metrics: {val}. "
-                "Use {list(MAP_METRICS.keys())}"
+                f"Use {list(MAP_METRICS.keys())}"
             )
         self._metrics = val
 
@@ -239,25 +240,29 @@ class HeritageSegmenter:
     def segment(self, text):
         """
         Simple wrapper for segmentation.
-        Returns a clean list of strings (e.g. ['res1', 'res2']).
+        Temporarily forces mode='first' for this call only,
+        to return a single string result (e.g. 'rAmaH vanam gacCawi').
         This is the easiest entry point for Python developers.
         """
-        return self.process_text(
-            text,
-            process_mode="seg",
-            output_format="list"
-        )
+        # 1. Save state
+        original_mode = self.mode
 
-    def analyze(self, text):
-        """
-        Simple wrapper for full analysis (Segmentation + Morphology).
-        Returns the full dictionary object with metadata.
-        """
-        return self.process_text(
-            text,
-            process_mode="seg-morph",
-            output_format="json"
-        )
+        try:
+            self.mode = "first"
+            logger.debug(
+                f"segment(): Temporarily switching mode to {self.mode}"
+            )
+
+            return self.process_text(
+                text,
+                process_mode="seg",
+                output_format="text"
+            )
+        finally:
+            logger.debug(
+                f"segment(): Restoring original mode ({original_mode})"
+            )
+            self.mode = original_mode
 
     def analyze_word(self, word):
         """
@@ -270,6 +275,10 @@ class HeritageSegmenter:
         try:
             # 2. Mutate state
             self.text_type = "word"
+            logger.debug(
+                "analyze_word(): Temporarily "
+                f"Switching text_type to {self.text_type}"
+            )
 
             # 3. Call engine
             return self.process_text(
@@ -278,8 +287,42 @@ class HeritageSegmenter:
                 output_format="json"
             )
         finally:
-            # 4. Restore state GUARANTEED
+            # 4. Restore the original state
+            logger.debug(
+                "analyze_word(): Restoring original text_type: "
+                f"{original_text_type}"
+            )
             self.text_type = original_text_type
+
+    def analyze(self, text):
+        """
+        Simple wrapper for full analysis (Segmentation + Morphology).
+        Returns the full dictionary object with metadata.
+        """
+        # 1. Save state
+        original_mode = self.mode
+        original_metrics = self.metrics
+
+        try:
+            self.mode = "first"
+            self.metrics = "morph"
+            logger.debug(
+                "segment(): Temporarily switching"
+                f" mode to '{self.mode}' and metrics to '{self.metrics}'"
+            )
+
+            return self.process_text(
+                text,
+                process_mode="seg-morph",
+                output_format="json"
+            )
+        finally:
+            logger.debug(
+                "segment(): Restoring original mode and metrics: "
+                f"{original_metrics} and {original_mode}"
+            )
+            self.mode = original_mode
+            self.metrics = original_metrics
 
     # ==========================
     # 2. System API (The Engine)
@@ -296,6 +339,133 @@ class HeritageSegmenter:
             output_format (str) : 'list', 'json' or 'text'
                                   'list' and 'text' only for 'seg' mode
         """
+        # 1. Centralized validation for output compatibility
+        output_format = self._validate_batch_args(process_mode, output_format)
+
+        # 2. Retrieve the results based on the process
+        result = self._run_pipeline(
+            text, process=process_mode
+        )
+
+        # 3. Format the output
+        # A. JSON Mode: Return immediately
+        if output_format == "json":
+            return result
+
+        # B. Text/List Mode: Determine the content
+        seg_result = []
+        if result.get("status") in ["Success", "Unrecognized"]:
+            seg_result = result.get("segmentation", [])
+
+        # If no valid result, use the error fallback
+        if not seg_result:
+            seg_result = [f"?? {text}"]
+
+        # C. Return the correct type
+        if output_format == "text":
+            return seg_result[0]
+        elif output_format == "list":
+            return seg_result
+        else:
+            return seg_result     # Default returns a List
+
+    # ==========================
+    # 3. Batch / Parallel Utilities
+    # ==========================
+
+    def process_list(
+        self, items, workers=None,
+        process_mode="seg", output_format="text"
+    ):
+        """
+        Process a list of strings in parallel in memory.
+        Calculates dynamic chunksize since total length is known.
+        """
+        from .batch import process_iterator
+
+        # 1. Validation and configuration
+        output_format = self._validate_batch_args(process_mode, output_format)
+        config = self._get_config_dict()
+
+        iterator = process_iterator(
+            input_iterable=items,
+            config=config,
+            process_mode=process_mode,
+            output_format=output_format,
+            total_items=len(items),
+            requested_workers=workers
+        )
+
+        return list(tqdm(
+            iterator,
+            total=len(items),
+            desc="Processing List",
+            unit="item"
+        ))
+
+    def process_file(
+        self, input_path, output_path, workers=None,
+        process_mode="seg", output_format="text",
+        total_lines=None
+    ):
+        """
+        Instance method to process a file using this object's configuration.
+        """
+        from .batch import process_iterator
+
+        # 1. Validation
+        output_format = self._validate_batch_args(process_mode, output_format)
+
+        # 2. Setup to capture THIS instance's state
+        config = self._get_config_dict()
+
+        if total_lines is None:
+            logger.info("Scanning input file to calculate progress...")
+            try:
+                # Fast line counting (generator based, low memory)
+                with open(input_path, 'r', encoding='utf-8') as f:
+                    total_lines = sum(1 for _ in f)
+                logger.info(f"Total lines: {total_lines}")
+            except Exception:
+                logger.warning(
+                    "Could not count lines."
+                    "Progress bar will be indeterminate."
+                )
+                pass  # Fail silently, batch.py will use default chunksize
+
+        logger.info(f"Batch Processing: {input_path} -> {output_path}")
+
+        try:
+            with open(input_path, "r", encoding="utf-8") as fin, \
+                 open(output_path, "w", encoding="utf-8") as fout:
+
+                # Delegate to the engine
+                results_generator = process_iterator(
+                    input_iterable=fin,
+                    config=config,
+                    process_mode=process_mode,
+                    output_format=output_format,
+                    total_items=total_lines,  # Pass count if available
+                    requested_workers=workers
+                )
+
+                for result_data in tqdm(
+                    results_generator, total=total_lines, desc="Processing"
+                ):
+                    out_str = HeritageSegmenter.serialize_result(
+                        result_data, output_format, indent=None
+                    )
+                    fout.write(out_str + "\n")
+                    fout.flush()
+
+        except FileNotFoundError:
+            logger.error(f"Input file not found: {input_path}")
+        except Exception as e:
+            logger.error(f"Batch processing failed: {e}")
+
+    def _validate_batch_args(self, process_mode, output_format):
+        """Helper to log warnings about incompatible modes."""
+
         # 1. Morph mode cannot return a simple list
         #    because we would lose the tags. Fallback to JSON.
         if "morph" in process_mode and output_format in ["list", "text"]:
@@ -313,23 +483,72 @@ class HeritageSegmenter:
             )
             output_format = "list"
 
-        # 2. Retrieve the results based on the process
-        result = self._run_pipeline(
-            text, process=process_mode
-        )
+        return output_format
 
-        # 3. Format the output
-        if output_format in ["list", "text"]:
-            if result.get("status") in ["Success", "Unrecognized"]:
-                seg_result = result.get("segmentation", [])
-                if seg_result:
-                    return seg_result
+    def _get_config_dict(self):
+        return {
+            "lex": self.lex, "input_encoding": self.input_encoding,
+            "output_encoding": self.output_encoding, "mode": self.mode,
+            "text_type": self.text_type, "metrics": self.metrics,
+            "unsandhied": self.unsandhied, "timeout": self.timeout,
+            "binary_path": self.cgi_path,
+        }
 
-            # Return the input prefixed with "??" in case of errors
-            # like Timeout, Binary Crash, Empty Result
-            return [f"?? {text}"]
+    # ==========================
+    # Static Utilities
+    # ==========================
+
+    @staticmethod
+    def serialize_result(data, output_format, indent=None):
+        """
+        Helper to convert the Python Data (List/Dict) into a writable String.
+        Used by CLI and Batch writers to ensure consistent output formatting.
+        Args:
+            data (dict): Dictionary containing the result
+            output_format (str): 'list', 'text' or 'json'
+            indent (int): Json indentation level.
+                          Pass None for compact (Batch).
+                          Pass 2 for pretty (CLI).
+        """
+        # 1. Handle Empty Lines (Preserve alignment)
+        if data is None:
+            # Handle empty lines from input
+            if output_format == "text":
+                return ""
+            elif output_format == "list":
+                return "[]"
+            else:
+                return json.dumps(
+                    {"status": "Skipped", "error": "Empty Input"},
+                    ensure_ascii=False
+                )
+
+        # 2. Handle System Crashes (Passed from batch.py)
+        if isinstance(data, Exception):
+            error_msg = f"?? System Error: {str(data)}"
+            if output_format == "text":
+                return error_msg
+            elif output_format == "list":
+                return json.dumps([error_msg], ensure_ascii=False)
+            else:
+                # Create a JSON error object
+                return json.dumps(
+                    {"status": "Failure", "error": str(data)},
+                    ensure_ascii=False
+                )
+
+        # 3. Handle Normal Results
+        if output_format == "text":
+            # Unwrap the list for raw text output
+            if isinstance(data, list) and data:
+                return str(data[0])
+            elif isinstance(data, str):
+                return data  # Fallback if error string was passed directly
+            else:
+                return ""  # Fallback for unexpected types to prevent crash
         else:
-            return result
+            # For 'json' or 'list' format, dump the object to a JSON string
+            return json.dumps(data, ensure_ascii=False, indent=indent)
 
     # ==========================
     # Internal Wrappers
@@ -809,71 +1028,3 @@ class HeritageSegmenter:
         merged["source"] = source_label
 
         return merged
-
-    # ==========================
-    # Static Utilities
-    # ==========================
-
-    @staticmethod
-    def batch_process(
-        input_path,
-        output_path,
-        workers=None,
-        process_mode="seg",
-        output_format="text",
-        **kwargs
-    ):
-        """
-        Run parallel batch processing on a file.
-
-        Args:
-            input_path (str): Path to the input file.
-            output_path (str): Path to save the output.
-            workers (int, optional): Number of CPU cores to use.
-                                     Defaults to auto-detect.
-            process_mode (str, optional): 'seg' (default), 'morph',
-                                           or 'seg-morph'.
-            output_format (str): 'json' (default, full details)
-                                 or 'list' (segmentation strings only).
-
-            **kwargs: Configuration options passed to the
-                      HeritageSegmenter constructor.
-                      Common options include:
-                      - lex (str): 'MW' or 'SH'
-                      - input_encoding (str): 'DN', 'WX', 'SL', etc.
-                      - output_encoding (str): 'DN', 'RN', 'WX'
-                      - mode (str): 'first' or 'top10'
-                      - timeout (int): Seconds per sentence.
-        """
-        from .batch import run_parallel_batch  # Local import
-
-        run_parallel_batch(
-            input_file=input_path,
-            output_file=output_path,
-            config=kwargs,  # Pass the captured dict
-            process_mode=process_mode,
-            output_format=output_format,
-            num_workers=workers
-        )
-
-    @staticmethod
-    def serialize_result(data, output_format, indent=None):
-        """
-        Helper to convert the Python Data (List/Dict) into a writable String.
-        Used by CLI and Batch writers to ensure consistent output formatting.
-        Args:
-            data (dict): Dictionary containing the result
-            output_format (str): 'list', 'text' or 'json'
-            indent (int): Json indentation level.
-                          Pass None for compact (Batch).
-                          Pass 2 for pretty (CLI).
-        """
-        if output_format == "text":
-            # Unwrap the list for raw text output
-            if isinstance(data, list) and data:
-                return str(data[0])
-            else:
-                return ""  # Return empty string for failures/empty results
-        else:
-            # For 'json' or 'list' format, dump the object to a JSON string
-            return json.dumps(data, ensure_ascii=False, indent=indent)

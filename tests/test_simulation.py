@@ -78,13 +78,13 @@ class TestFacadeAPI:
     def test_segment_wrapper(self):
         """Verify segment() calls process_text with strict defaults."""
         with patch.object(self.segmenter, 'process_text') as mock_process:
-            mock_process.return_value = ["res"]
+            mock_process.return_value = "res"
 
             res = self.segmenter.segment("test")
 
-            assert res == ["res"]
+            assert res == "res"
             mock_process.assert_called_once_with(
-                "test", process_mode="seg", output_format="list"
+                "test", process_mode="seg", output_format="text"
             )
 
     def test_analyze_word_wrapper(self):
@@ -155,8 +155,8 @@ class TestProcessTextLogic:
                 "input", process_mode="seg", output_format="text"
             )
 
-            assert isinstance(result, list)
-            assert result == ["res1"]
+            assert isinstance(result, str)
+            assert result == "res1"
 
     def test_seg_mode_list_format(self):
         """Action: seg + list -> Result: List[str]"""

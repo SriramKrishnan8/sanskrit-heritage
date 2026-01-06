@@ -56,7 +56,7 @@ The core of the package is the `HeritageSegmenter` class.
 
 ### Simple Segmentation
 
-Use `.segment()` to get a clean list of segmentation strings.
+Use `.segment()` to get a segmentation string.
 
 ```python
 from sanskrit_heritage import HeritageSegmenter
@@ -77,7 +77,7 @@ print(result)
 #### Output
 
 ```
-["धर्म-क्षेत्रे कुरु-क्षेत्रे समवेताः युयुत्सवः मामकाः पाण्डवाः च एव किम् अकुर्वत सञ्जय"]
+"धर्म-क्षेत्रे कुरु-क्षेत्रे समवेताः युयुत्सवः मामकाः पाण्डवाः च एव किम् अकुर्वत सञ्जय"
 ```
 
 
@@ -261,18 +261,30 @@ segmenter = HeritageSegmenter(
 
 ### 5. Batch Processing
 
-There is also an option to run a large number of sentences using parallel processing by directly calling the method `batch_process`. Given an `input_file.tsv` with sentences separated by newline:
+There is also an option to run a large number of sentences using parallel processing. 
+
+#### Process a list in memory:
 
 ```python
-HeritageSegmenter.batch_process(
+results = segmenter.process_list(
+    input_list,  # Pass a list of sentences or words
+    workers=4, 
+    process_mode="seg", 
+    output_format="text"
+)
+```
+
+#### Process a file:
+Given an `input_file.tsv` with sentences/words separated by newline:
+
+```python
+# Reads input_file line-by-line and writes to output_file
+# Uses the configuration set during initialization (e.g. Encoding, Lexicon)
+segmenter.process_file(
     input_path="input_file.tsv",
     output_path="output_file.tsv",
     process_mode="seg",
     output_format="text",
-    # Additional arguments from the previous configurations 
-    # can also be passed here like:
-    # input_encoding="WX",
-    # metrics="morph",
 )
 ```
 
@@ -299,7 +311,7 @@ sh-segment -t "रामोवनङ्गच्छति" --process seg-morph -
 
 ### Bulk File Processing (Parallel)
 
-Process large files efficiently using multiple CPU cores. The input file should contain newline-delimited sentences.
+Process large files efficiently using multiple CPU cores. The input file should contain newline-delimited sentences/words.
 
 ```bash
 # Process file using 4 parallel workers
@@ -374,7 +386,7 @@ from sanskrit_heritage import HeritageSegmenter
 logging.basicConfig(level=logging.DEBUG)  # or logging.INFO
 
 segmenter = HeritageSegmenter()
-segmenter.get_segmentation("...")
+segmenter.segment("...")
 ```
 
 ---

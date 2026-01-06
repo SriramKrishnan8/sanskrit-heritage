@@ -40,9 +40,9 @@ class TestRealIntegration:
         """Verify the user-friendly facade works with real binary."""
         # 1. Test segment() -> Returns List
         res_seg = self.segmenter.segment("rAmogacCawi")
-        assert isinstance(res_seg, list)
+        assert isinstance(res_seg, str)
         assert len(res_seg) > 0
-        assert "rAmaH gacCawi" in res_seg[0]
+        assert "rAmaH gacCawi" in res_seg
 
         # 2. Test analyze() -> Returns Dict with Morph
         res_morph = self.segmenter.analyze("gacCawi")
@@ -53,11 +53,11 @@ class TestRealIntegration:
     def test_process_text_api_text(self):
         """Test unified API returns Python Objects (not strings)."""
         # Text format request -> Returns List object
-        res_list = self.segmenter.process_text(
+        res_str = self.segmenter.process_text(
             "rAmogacCawi", output_format="text"
         )
-        assert isinstance(res_list, list)
-        assert "rAmaH gacCawi" in res_list[0]
+        assert isinstance(res_str, str)
+        assert "rAmaH gacCawi" in res_str
 
     def test_batch_e2e_text_mode(self, tmp_path):
         """
@@ -69,13 +69,15 @@ class TestRealIntegration:
             "rAmogacCawi\nkqRNorakRawu", encoding="utf-8"
         )
 
+        seg = HeritageSegmenter(input_encoding="WX", output_encoding="WX")
+
         # Run with defaults (format='text')
-        HeritageSegmenter.batch_process(
+        seg.process_file(
             input_path=str(input_file),
             output_path=str(output_file),
             workers=1,
-            input_encoding="WX",
-            output_encoding="WX"
+            process_mode="seg",
+            output_format="text"
         )
 
         with open(output_file, 'r', encoding='utf-8') as f:
@@ -94,13 +96,13 @@ class TestRealIntegration:
         output_file = tmp_path / "output.jsonl"
         input_file.write_text("rAmogacCawi", encoding="utf-8")
 
-        HeritageSegmenter.batch_process(
+        seg = HeritageSegmenter(input_encoding="WX", output_encoding="WX")
+
+        seg.process_file(
             input_path=str(input_file),
             output_path=str(output_file),
             workers=1,
             output_format="list",  # Explicitly asking for list
-            input_encoding="WX",
-            output_encoding="WX"
         )
 
         content = output_file.read_text(encoding="utf-8").strip()
@@ -139,15 +141,17 @@ class TestRealIntegration:
         input_file.write_text("\n".join(sentences), encoding="utf-8")
 
         # 2. Run Batch
+        # Instantiate
+        segmenter = HeritageSegmenter(
+            input_encoding="WX", output_encoding="WX"
+        )
         # (Force 1 worker to avoid heavy multiprocessing overhead in tests)
-        HeritageSegmenter.batch_process(
+        segmenter.process_file(
             input_path=str(input_file),
             output_path=str(output_file),
             workers=1,
             process_mode="seg",
             output_format="list",
-            input_encoding="WX",
-            output_encoding="WX"
         )
 
         # 3. Read Output
