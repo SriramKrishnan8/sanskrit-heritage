@@ -105,7 +105,7 @@ def main():
 
     # --- LOGGING CONFIGURATION ---
     # 1. Decide the level based on the flag
-    log_level = logging.DEBUG if args.debug else logging.INFO
+    log_level = logging.DEBUG if args.debug else logging.WARNING
 
     # 2. Configure the root logger
     # This setting applies to ALL files (batch.py, interface.py, etc.)

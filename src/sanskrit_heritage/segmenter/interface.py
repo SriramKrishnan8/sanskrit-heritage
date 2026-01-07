@@ -107,18 +107,89 @@ class HeritageSegmenter:
 
         # 3. Internal Constants
         self.svaras = [
-            '\uA8E1', '\uA8E2', '\uA8E3', '\uA8E4', '\uA8E5', '\uA8E6',
-            '\uA8E7', '\uA8E8', '\uA8E9', '\uA8E0', '\uA8EA', '\uA8EB',
-            '\uA8EC', '\uA8EE', '\uA8EF', '\u030D', '\u0951', '\u0952',
-            '\u0953', '\u0954', '\u0945'
+            # --- Devanagari Extended (Vedic Cantillation/Svaras) ---
+            # These are used for specific musical tones in Samaveda singing
+            '\uA8E1',  # ꣡  (COMBINING DEVANAGARI DIGIT ONE - Swara marker)
+            '\uA8E2',  # ꣢  (COMBINING DEVANAGARI DIGIT TWO - Swara marker)
+            '\uA8E3',  # ꣣  (COMBINING DEVANAGARI DIGIT THREE - Swara marker)
+            '\uA8E4',  # ꣤  (COMBINING DEVANAGARI DIGIT FOUR - Swara marker)
+            '\uA8E5',  # ꣥  (COMBINING DEVANAGARI DIGIT FIVE - Swara marker)
+            '\uA8E6',  # ꣦  (COMBINING DEVANAGARI DIGIT SIX - Swara marker)
+            '\uA8E7',  # ꣧  (COMBINING DEVANAGARI DIGIT SEVEN - Swara marker)
+            '\uA8E8',  # ꣨  (COMBINING DEVANAGARI DIGIT EIGHT - Swara marker)
+            '\uA8E9',  # ꣩  (COMBINING DEVANAGARI DIGIT NINE - Swara marker)
+            '\uA8E0',  # ꣠  (COMBINING DEVANAGARI DIGIT ZERO - Swara marker)
+
+            # --- More Vedic Marks ---
+            '\uA8EA',  # ꣪  (COMBINING DEVANAGARI LETTER A - Abhinihita)
+            '\uA8EB',  # ꣫  (COMBINING DEVANAGARI LETTER U - Udatta variant)
+            '\uA8EC',  # ꣬  (COMBINING DEVANAGARI LETTER KA - Kampana)
+            '\uA8EE',  # ꣮  (COMBINING DEVANAGARI LETTER RA - Ranga)
+            '\uA8EF',  # ꣯  (COMBINING DEVANAGARI LETTER VI - Vinata)
+
+            # --- Common Vedic Accents (Standard Devanagari) ---
+            # ◌̍   (COMBINING VERTICAL LINE ABOVE)
+            # (Svarita/Udatta in some traditions)
+            '\u030D',
+            # ◌॑   (DEVANAGARI STRESS SIGN UDATTA - Vertical line above)
+            '\u0951',
+            # ◌॒   (DEVANAGARI STRESS SIGN ANUDATTA - Horizontal line below)
+            '\u0952',
+            # ◌ Grave Accent (DEVANAGARI GRAVE ACCENT - Used for Svarita)
+            '\u0953',
+            # ◌ Acute Accent (DEVANAGARI ACUTE ACCENT - Used for Udatta)
+            '\u0954',
+
+            # --- Special Signs ---
+            # ◌ॅ  (DEVANAGARI VOWEL SIGN CANDRA E - Chandra Bindu variant)
+            '\u0945',
         ]
+
         self.special_characters = [
-            '\uf15c', '\uf193', '\uf130', '\uf1a3', '\uf1a2', '\uf195',
-            '\uf185', '\u200d', '\u200c', '\u1CD6', '\u1CD5', '\u1CE1',
-            '\u030E', '\u035B', '\u0324', '\u1CB5', '\u0331', '\u1CB6',
-            '\u032B', '\u0308', '\u030D', '\u0942', '\uF512', '\uF693',
-            '\uF576', '\uF11E', '\u1CD1', '\u093C', '\uF697', '\uF6AA',
-            '\uF692', '\u200b',
+            # --- Private Use Area (Legacy Font Artifacts) ---
+            # These often appear as boxes or '?' in modern fonts
+            '\uf15c',  #   (PUA: Legacy artifact)
+            '\uf193',  #   (PUA: Legacy artifact)
+            '\uf130',  #   (PUA: Legacy artifact)
+            '\uf1a3',  #   (PUA: Legacy artifact)
+            '\uf1a2',  #   (PUA: Legacy artifact)
+            '\uf195',  #   (PUA: Legacy artifact)
+            '\uf185',  #   (PUA: Legacy artifact)
+
+            # --- Zero Width Controls ---
+            '\u200d',  # [Invisible] (ZERO WIDTH JOINER - ZWJ)
+            '\u200c',  # [Invisible] (ZERO WIDTH NON-JOINER - ZWNJ)
+            '\u200b',  # [Invisible] (ZERO WIDTH SPACE)
+            '\ufeff',  # [Invisible] Zero Width No-Break Space
+
+            # --- Vedic Accents (Svaritas & VEDIC TONE) ---
+            '\u1CD6',  # ◌᳖  (YAJURVEDIC INDEPENDENT SVARITA)
+            '\u1CD5',  # ◌᳕  (YAJURVEDIC AGGRAVATED INDEPENDENT SVARITA)
+            '\u1CE1',  # ◌᳡  (ATHARVAVEDIC INDEPENDENT SVARITA)
+            '\u1CB5',  # ◌Ჵ  (YAJURVEDIC KATHAKA INDEPENDENT SVARITA)
+            '\u1CB6',  # ◌Ჶ (YAJURVEDIC KATHAKA INDEPENDENT SVARITA SCHROEDER)
+            '\u1CD1',  # ◌᳑  (SHARA - Single horizontal line above)
+
+            # --- Generic Combining Diacritics (Used for Accents) ---
+            '\u030E',  # ◌̎   (COMBINING DOUBLE VERTICAL LINE ABOVE)
+            '\u035B',  # ◌͛   (COMBINING ZIGZAG ABOVE)
+            '\u0324',  # ◌̤   (COMBINING DIAERESIS BELOW)
+            '\u0331',  # ◌̱   (COMBINING MACRON BELOW - Anudatta)
+            '\u032B',  # ◌̫   (COMBINING INVERTED DOUBLE ARCH BELOW)
+            '\u0308',  # ◌̈   (COMBINING DIAERESIS - Umlaut)
+            '\u030D',  # ◌̍   (COMBINING VERTICAL LINE ABOVE - Svarita)
+
+            # --- Devanagari Specifics ---
+            '\u093C',  # ◌़   (DEVANAGARI SIGN NUKTA - Dot below)
+
+            # --- More Private Use Area (Likely Garbage/Artifacts) ---
+            '\uF512',  #   (PUA: Legacy artifact)
+            '\uF693',  #   (PUA: Legacy artifact)
+            '\uF576',  #   (PUA: Legacy artifact)
+            '\uF11E',  #   (PUA: Legacy artifact)
+            '\uF697',  #   (PUA: Legacy artifact)
+            '\uF6AA',  #   (PUA: Legacy artifact)
+            '\uF692',  #   (PUA: Legacy artifact)
         ]
 
     # ==========================
