@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-01-08
+
+### Changed
+- **Data Update:** Updated bundled binary and dictionary resources (`.rem` files) to sync with the latest upstream INRIA repository.
+- **CLI:** Changed default logging level from `INFO` to `WARNING` to keep standard output clean for piping.
+
+### Fixed
+- **Bug:** Removed `\u0942` (Devanagari Vowel Sign UU) from the ignored characters list, correcting issues where long 'u' was being stripped from input.
+- **Internal:** Added detailed Unicode documentation/comments for special character handling.
+
 ## [1.0.0] - 2026-01-07
 
 ### 🎉 Milestone: Production Ready
